@@ -1,0 +1,56 @@
+// Case 4: Prisma Schema Definition
+
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Hashed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  messages  Message[]
+  rooms     Room[]    @relation("UserRooms") 
+}
+
+model Room {
+  id        String    @id @default(uuid())
+  name      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  participants User[] @relation("UserRooms")
+  messages     Message[]
+
+  @@index([createdAt])
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  content        String
+  attachmentUrl  String?  // Case 2: Send message with attachment
+  attachmentType String?  // IMAGE, VIDEO, FILE
+  createdAt      DateTime @default(now())
+  
+  senderId       String
+  sender         User     @relation(fields: [senderId], references: [id])
+  
+  roomId         String
+  room           Room     @relation(fields: [roomId], references: [id])
+
+  // Case 4: Unique key for idempotency
+  idempotencyKey String?   @unique 
+
+  // Case 4: Indexes
+  @@index([roomId])
+  @@index([senderId])
+  @@index([createdAt]) // For ordering and history
+}

@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # Infrastructure
+  postgres:
+    image: postgres:15-alpine
+    container_name: crm_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-healthcare_crm}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - crm_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: crm_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - crm_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Microservices
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: crm_gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - AUTH_SERVICE_URL=http://auth-service:3001/graphql
+      - CHAT_SERVICE_URL=http://chat-service:3002/graphql
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - crm_network
+    command: npm run start:dev gateway
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: crm_auth
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-healthcare_crm}?schema=public
+      - JWT_SECRET=supersecretkey
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - crm_network
+    command: npm run start:dev auth-service
+
+  chat-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: crm_chat
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-healthcare_crm}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crm_network
+    command: npm run start:dev chat-service
+
+  worker-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: crm_worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-healthcare_crm}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crm_network
+    command: npm run start:dev worker-service
+
+networks:
+  crm_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
